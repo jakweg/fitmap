@@ -1,9 +1,6 @@
 import { error, redirect } from '@sveltejs/kit'
 import type { PageLoad } from './$types'
 
-export const ssr = false
-export const csr = true
-
 export const load: PageLoad = async ({ fetch, url }) => {
 	const CLIENT_ID = '23QQZ6'
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { env } from '$env/dynamic/public'
+
 	const generateCodeVerifier = async () => {
 		const ALLOWED_CHARS = 'qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890'
 		const ALLOWED_CHARS_COUNT = ALLOWED_CHARS.length
@@ -22,15 +24,13 @@
 	}
 
 	const onSignInClicked = async () => {
-		const CLIENT_ID = '23QQZ6'
-
 		const codeVerifier = await generateCodeVerifier()
 
 		const state = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(64))))
 
 		const params = [
 			['response_type', 'code'],
-			['client_id', CLIENT_ID],
+			['client_id', env.PUBLIC_FITBIT_APP_ID],
 			['scope', 'activity+location'],
 			['code_challenge', codeVerifier.base64],
 			['code_challenge_method', 'S256'],

@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { onMount } from 'svelte'
+
 	import { openIndexedDatabase, promiseWrapRequest } from '../../lib/idb'
+	import Libre from './libre.svelte'
 
 	const openDb = () =>
 		openIndexedDatabase('fitmap', 1, db => {
@@ -119,7 +122,47 @@
 
 		db.close()
 	}
+
+	let feature: any = null
+	const loadTcx = async () => {
+		const userId = localStorage.getItem('userId')
+		const db = await openDb()
+
+		const transaction = db.transaction(['recordedActivities'], 'readonly')
+		const values = (
+			await promiseWrapRequest(
+				transaction
+					.objectStore('recordedActivities')
+					.index('missingTcxData')
+					.getAll(IDBKeyRange.only('F')),
+			)
+		).filter(v => v.userId === userId)
+
+		const getCoordinatesFromArray = (array: Float64Array) => {
+			const length = (array.length / 2) | 0
+			const points: [number, number][] = []
+			for (let i = 0; i < length; ++i) {
+				points.push([array[i * 2 + 1], array[i * 2]])
+			}
+			return points
+		}
+
+		feature = {
+			type: 'FeatureCollection',
+			features: values.map(workout => ({
+				type: 'Feature',
+				geometry: {
+					type: 'LineString',
+					coordinates: getCoordinatesFromArray(workout.tcxData),
+				},
+			})),
+		}
+	}
+
+	onMount(() => loadTcx())
 </script>
 
 <button on:click={downloadList}>Download activities list</button>
 <button on:click={downloadTcx}>Download tcx data</button>
+<button on:click={loadTcx}>Load tcx data</button>
+<Libre geoJSONData={feature} />
