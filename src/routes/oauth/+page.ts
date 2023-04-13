@@ -1,4 +1,4 @@
-import { error } from '@sveltejs/kit'
+import { error, redirect } from '@sveltejs/kit'
 import type { PageLoad } from './$types'
 
 export const ssr = false
@@ -12,7 +12,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 
 	const { state, codeVerifier } = JSON.parse(localStorage.getItem('auth-params') || 'null')
 
-	if (receivedState !== state) return error(400, `States don't match`)
+	if (receivedState !== state) throw error(400, `States don't match`)
 
 	const body = [
 		['client_id', CLIENT_ID],
@@ -33,7 +33,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 
 	localStorage.removeItem('auth-params')
 
-	if (!response.ok) return error(400, await response.text())
+	if (!response.ok) throw error(400, await response.text())
 
 	const { access_token, expires_in, refresh_token, user_id } = await response.json()
 
@@ -41,5 +41,5 @@ export const load: PageLoad = async ({ fetch, url }) => {
 	localStorage.setItem('refreshToken', refresh_token)
 	localStorage.setItem('userId', user_id)
 
-	return { user_id }
+	throw redirect(302, '/workouts')
 }

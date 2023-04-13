@@ -14,7 +14,10 @@
 		}
 
 		const hashed = new Uint8Array(await crypto.subtle.digest('sha-256', toBeHashed))
-		const asBase64 = btoa(String.fromCharCode(...hashed)).replaceAll(/=*$/g, '')
+		const asBase64 = btoa(String.fromCharCode(...hashed))
+			.replaceAll(/\+/g, '-')
+			.replaceAll(/\//g, '_')
+			.replaceAll(/=*$/g, '')
 		return { base64: asBase64, plain: chars.join('') }
 	}
 
@@ -28,7 +31,7 @@
 		const params = [
 			['response_type', 'code'],
 			['client_id', CLIENT_ID],
-			['scope', 'activity'],
+			['scope', 'activity+location'],
 			['code_challenge', codeVerifier.base64],
 			['code_challenge_method', 'S256'],
 			['state', encodeURIComponent(state)],
