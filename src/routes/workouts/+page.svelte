@@ -4,11 +4,35 @@
 	import { openIndexedDatabase, promiseWrapRequest } from '../../lib/idb'
 	import Libre from './libre.svelte'
 
+	let firstFetched: string = '?'
+	let status = 'idle'
+
 	const openDb = () =>
 		openIndexedDatabase('fitmap', 1, db => {
 			const store = db.createObjectStore('recordedActivities', { keyPath: 'logId' })
 			store.createIndex('missingTcxData', 'missingTcxData', { unique: false })
 		})
+
+	const updateStats = async () => {
+		firstFetched = localStorage.getItem('first-workout-fetched') || 'never'
+
+		const db = await openDb()
+		const transaction = db.transaction(['recordedActivities'], 'readonly')
+		const readyWorkouts = await promiseWrapRequest(
+			transaction
+				.objectStore('recordedActivities')
+				.index('missingTcxData')
+				.count(IDBKeyRange.only('F')),
+		)
+		const notReadyWorkouts = await promiseWrapRequest(
+			transaction
+				.objectStore('recordedActivities')
+				.index('missingTcxData')
+				.count(IDBKeyRange.only('T')),
+		)
+		firstFetched += ` ready ${readyWorkouts}, missing ${notReadyWorkouts}`
+		db.close()
+	}
 
 	const makeApiCall = async (
 		options: ({ fullUrl: string } | { endpoint: string; params: { [key: string]: string } }) & {
@@ -38,18 +62,32 @@
 	const downloadList = async () => {
 		const userId = localStorage.getItem('userId')
 		const allActivities: any[] = []
-		const response = await makeApiCall({
-			endpoint: 'activities/list.json',
-			params: {
-				beforeDate: new Date().toISOString().substring(0, 19),
-				limit: '100',
-				sort: 'asc',
-				offset: '0',
-			},
-		})
+		status = 'downloading first'
+		const startingPoint = localStorage.getItem('first-workout-fetched')
+		const response = await (startingPoint
+			? makeApiCall({
+					endpoint: 'activities/list.json',
+					params: {
+						afterDate: startingPoint.substring(0, 19),
+						limit: '100',
+						sort: 'asc',
+						offset: '0',
+					},
+			  })
+			: makeApiCall({
+					endpoint: 'activities/list.json',
+					params: {
+						beforeDate: new Date().toISOString().substring(0, 19),
+						limit: '100',
+						sort: 'desc',
+						offset: '0',
+					},
+			  }))
 		allActivities.push(...response.activities)
+		let i = 0
 		let next = response.pagination.next
 		while (next) {
+			status = 'downloading next ' + ++i
 			const response = await makeApiCall({ fullUrl: next })
 			next = response.pagination.next
 			allActivities.push(...response.activities)
@@ -77,6 +115,9 @@
 		)
 
 		db.close()
+		status = 'idle'
+		localStorage.setItem('first-workout-fetched', response.activities[0]?.lastModified ?? '')
+		updateStats()
 	}
 
 	const downloadTcx = async () => {
@@ -95,6 +136,8 @@
 
 		const parser = new DOMParser()
 
+		status = 'Downloading tcx...'
+		let doneCounter = 0
 		await Promise.allSettled(
 			values.map(async v => {
 				const content = await makeApiCall({ fullUrl: v.tcxLink, asText: true })
@@ -117,8 +160,12 @@
 						.objectStore('recordedActivities')
 						.put({ ...v, missingTcxData: 'F', tcxData: positionPoints }),
 				)
+				doneCounter++
+				status = `Downloading tcx... ${doneCounter} / ${values.length}`
 			}),
 		)
+		status = `Done ${doneCounter} / ${values.length}`
+		updateStats()
 
 		db.close()
 	}
@@ -157,12 +204,15 @@
 				},
 			})),
 		}
+		status = `Loaded ${values.length} workouts`
 	}
 
-	onMount(() => loadTcx())
+	onMount(() => updateStats())
 </script>
 
 <button on:click={downloadList}>Download activities list</button>
 <button on:click={downloadTcx}>Download tcx data</button>
 <button on:click={loadTcx}>Load tcx data</button>
+<p>latest workout {firstFetched}</p>
+<p>{status}</p>
 <Libre geoJSONData={feature} />
