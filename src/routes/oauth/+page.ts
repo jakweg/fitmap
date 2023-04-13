@@ -1,9 +1,8 @@
+import { env } from '$env/dynamic/public'
 import { error, redirect } from '@sveltejs/kit'
 import type { PageLoad } from './$types'
 
 export const load: PageLoad = async ({ fetch, url }) => {
-	const CLIENT_ID = '23QQZ6'
-
 	const code = url.searchParams.get('code')
 	const receivedState = url.searchParams.get('state')
 
@@ -12,7 +11,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 	if (receivedState !== state) throw error(400, `States don't match`)
 
 	const body = [
-		['client_id', CLIENT_ID],
+		['client_id', env.PUBLIC_FITBIT_APP_ID],
 		['code', code],
 		['code_verifier', codeVerifier],
 		['grant_type', 'authorization_code'],
