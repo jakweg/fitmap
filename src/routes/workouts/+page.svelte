@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { unzip } from 'unzipit'
+
 	import { onMount } from 'svelte'
 
 	import { openIndexedDatabase, promiseWrapRequest } from '../../lib/idb'
@@ -8,7 +10,7 @@
 	let status = 'idle'
 
 	const openDb = () =>
-		openIndexedDatabase('fitmap', 1, db => {
+		openIndexedDatabase('fitmap-2', 1, db => {
 			const store = db.createObjectStore('recordedActivities', { keyPath: 'logId' })
 			store.createIndex('missingTcxData', 'missingTcxData', { unique: false })
 		})
@@ -121,18 +123,15 @@
 	}
 
 	const downloadTcx = async () => {
-		const userId = localStorage.getItem('userId')
 		const db = await openDb()
 
 		const transaction = db.transaction(['recordedActivities'], 'readonly')
-		const values = (
-			await promiseWrapRequest(
-				transaction
-					.objectStore('recordedActivities')
-					.index('missingTcxData')
-					.getAll(IDBKeyRange.only('T')),
-			)
-		).filter(v => v.userId === userId)
+		const values = await promiseWrapRequest(
+			transaction
+				.objectStore('recordedActivities')
+				.index('missingTcxData')
+				.getAll(IDBKeyRange.only('T')),
+		)
 
 		const parser = new DOMParser()
 
@@ -172,18 +171,15 @@
 
 	let feature: any = null
 	const loadTcx = async () => {
-		const userId = localStorage.getItem('userId')
 		const db = await openDb()
 
 		const transaction = db.transaction(['recordedActivities'], 'readonly')
-		const values = (
-			await promiseWrapRequest(
-				transaction
-					.objectStore('recordedActivities')
-					.index('missingTcxData')
-					.getAll(IDBKeyRange.only('F')),
-			)
-		).filter(v => v.userId === userId)
+		const values = await promiseWrapRequest(
+			transaction
+				.objectStore('recordedActivities')
+				.index('missingTcxData')
+				.getAll(IDBKeyRange.only('F')),
+		)
 
 		const getCoordinatesFromArray = (array: Float64Array) => {
 			const length = (array.length / 2) | 0
@@ -207,12 +203,73 @@
 		status = `Loaded ${values.length} workouts`
 	}
 
+	const loadEndomondo = () => {
+		const input = document.createElement('input')
+		input.type = 'file'
+		input.accept = '.zip'
+		input.click()
+		input.onchange = async () => {
+			const file = (input as any).files[0]
+			if (!file) return
+			status = 'Importing from zip'
+
+			const db = await openDb()
+
+			const info = await unzip(file)
+			const workouts = await Promise.all(
+				Object.entries(info.entries)
+					.filter(([key]) => key.startsWith('Workouts/') && key.endsWith('.json'))
+					.map(async ([key, workout]) => {
+						const object: any[] = await workout.json()
+						const points = object.findLast(e => 'points' in e)?.points as any[]
+						if (!points) return
+						const positions = new Float64Array(points.length * 2)
+						let missing = 0
+						for (let i = 0, l = points.length; i < l; ++i) {
+							const location = (points[i] as any[]).find(e => 'location' in e)?.location as any[]
+							if (!location) {
+								missing++
+								continue
+							}
+							const lat = (location[0] as any[]).find(e => 'latitude' in e)?.latitude
+							if (!lat) {
+								missing++
+								continue
+							}
+							const lng = (location[0] as any[]).find(e => 'longitude' in e)?.longitude
+							if (!lng) {
+								missing++
+								continue
+							}
+							positions[i * 2] = lat
+							positions[i * 2 + 1] = lng
+						}
+
+						return {
+							logId: 'endomondo/' + key,
+							missingTcxData: 'F',
+							tcxData: missing > 0 ? positions.slice(0, (points.length - missing) * 2) : positions,
+						}
+					}),
+			)
+			const transaction = db.transaction(['recordedActivities'], 'readwrite')
+			const store = transaction.objectStore('recordedActivities')
+			await Promise.all(
+				workouts.filter(e => typeof e === 'object').map(e => promiseWrapRequest(store.put(e))),
+			)
+
+			status = 'imported ' + workouts.length
+			db.close()
+		}
+	}
+
 	onMount(() => updateStats())
 </script>
 
-<button on:click={downloadList}>Download activities list</button>
+<button on:click={downloadList}>Download activities</button>
 <button on:click={downloadTcx}>Download tcx data</button>
-<button on:click={loadTcx}>Load tcx data</button>
+<button on:click={loadTcx}>Load gps</button>
+<button on:click={loadEndomondo}>endomondo</button>
 <p>latest workout {firstFetched}</p>
 <p>{status}</p>
 <Libre geoJSONData={feature} />

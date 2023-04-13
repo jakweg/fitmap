@@ -28,8 +28,6 @@
 </div>
 
 <style>
-	div {
-	}
 	:global(#map .maplibregl-map) {
 		position: relative;
 		width: 100svw;
