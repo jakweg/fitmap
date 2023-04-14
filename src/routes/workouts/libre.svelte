@@ -31,6 +31,6 @@
 	:global(#map .maplibregl-map) {
 		position: relative;
 		width: 100svw;
-		height: 80svh;
+		height: 100svh;
 	}
 </style>

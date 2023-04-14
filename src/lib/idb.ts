@@ -16,7 +16,7 @@ export const openIndexedDatabase = (
 	})
 }
 
-export const promiseWrapRequest = <T>(request: IDBRequest<T>) => {
+export const wrapDbQuery = <T>(request: IDBRequest<T>) => {
 	return new Promise<T>((resolve, reject) => {
 		request.onerror = reject
 		request.onsuccess = () => resolve(request['result'])
