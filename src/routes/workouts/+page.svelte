@@ -141,13 +141,13 @@
 			values.map(async v => {
 				const content = await makeApiCall({ fullUrl: v.tcxLink, asText: true })
 				const document = parser.parseFromString(content, 'text/xml')
-				const points = Array.from(document.querySelectorAll('Position'))
+				const points = document.getElementsByTagName('Position')
 				const positionPoints = new Float64Array(points.length * 2)
 
 				let i = 0
 				for (const position of points) {
-					const lat = +(position.querySelector('LatitudeDegrees')?.textContent ?? 0)
-					const lng = +(position.querySelector('LongitudeDegrees')?.textContent ?? 0)
+					const lat = +(position.getElementsByTagName('LatitudeDegrees')[0]?.textContent ?? 0)
+					const lng = +(position.getElementsByTagName('LongitudeDegrees')[0]?.textContent ?? 0)
 					positionPoints[i * 2] = lat
 					positionPoints[i * 2 + 1] = lng
 					i++
@@ -263,6 +263,62 @@
 		}
 	}
 
+	const loadGoogleGit = () => {
+		const input = document.createElement('input')
+		input.type = 'file'
+		input.accept = '.zip'
+		input.click()
+		input.onchange = async () => {
+			const file = (input as any).files[0]
+			if (!file) return
+			status = 'Importing from zip'
+
+			const db = await openDb()
+
+			const parser = new DOMParser()
+			const info = await unzip(file)
+			const workouts = (
+				await Promise.all(
+					Object.entries(info.entries)
+						.filter(([key]) => key.endsWith('.tcx'))
+						.map(async ([key, file]) => {
+							const foundActivities: any[] = []
+							const parsed = parser.parseFromString(await file.text(), 'text/xml')
+							let activityIndex = 0
+							for (const activity of parsed.getElementsByTagName('Activity')) {
+								const positionElements = activity.getElementsByTagName('Position')
+								if (positionElements.length === 0) continue
+								if (positionElements.length < 20) continue
+
+								const coords = new Float64Array(positionElements.length * 2)
+								let i = 0
+								for (const position of positionElements) {
+									const lat = position.getElementsByTagName('LatitudeDegrees')[0]?.textContent
+									const lng = position.getElementsByTagName('LongitudeDegrees')[0]?.textContent
+									coords[i * 2] = +(lat || '0')
+									coords[i * 2 + 1] = +(lng || '0')
+									++i
+								}
+								foundActivities.push({
+									logId: 'google-fit/' + activityIndex++ + '/' + key,
+									missingTcxData: 'F',
+									tcxData: coords,
+								})
+							}
+							return foundActivities
+						}),
+				)
+			).flat(1)
+
+			const transaction = db.transaction(['recordedActivities'], 'readwrite')
+			const store = transaction.objectStore('recordedActivities')
+			await Promise.all(workouts.map(e => promiseWrapRequest(store.put(e))))
+
+			status = 'imported ' + workouts.length
+			db.close()
+		}
+	}
+
 	onMount(() => updateStats())
 </script>
 
@@ -270,6 +326,7 @@
 <button on:click={downloadTcx}>Download tcx data</button>
 <button on:click={loadTcx}>Load gps</button>
 <button on:click={loadEndomondo}>endomondo</button>
+<button on:click={loadGoogleGit}>Google fit</button>
 <p>latest workout {firstFetched}</p>
 <p>{status}</p>
 <Libre geoJSONData={feature} />
